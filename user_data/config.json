@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "_comment": "RESEARCH ONLY. dry_run must stay true. No API keys, ever.",
+  "dry_run": true,
+  "dry_run_wallet": 10000,
+  "trading_mode": "spot",
+  "margin_mode": "",
+  "stake_currency": "USDT",
+  "stake_amount": "unlimited",
+  "tradable_balance_ratio": 0.99,
+  "max_open_trades": 5,
+  "fee": 0.0015,
+  "timeframe": "1h",
+  "dataformat_ohlcv": "feather",
+  "recursive_strategy_search": true,
+  "unfilledtimeout": {"entry": 10, "exit": 10, "unit": "minutes"},
+  "entry_pricing": {"price_side": "other", "use_order_book": true, "order_book_top": 1},
+  "exit_pricing": {"price_side": "other", "use_order_book": true, "order_book_top": 1},
+  "exchange": {
+    "name": "okx",
+    "key": "",
+    "secret": "",
+    "password": "",
+    "ccxt_config": {},
+    "ccxt_async_config": {},
+    "pair_whitelist": [
+      "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "DOGE/USDT", "SHIB/USDT",
+      "DOT/USDT", "FIL/USDT", "TRX/USDT", "AVAX/USDT", "ATOM/USDT", "AXS/USDT",
+      "THETA/USDT", "BCH/USDT", "LINK/USDT", "LTC/USDT", "NEAR/USDT", "CHZ/USDT"
+    ],
+    "pair_blacklist": []
+  },
+  "pairlists": [{"method": "StaticPairList"}],
+  "telegram": {"enabled": false, "token": "", "chat_id": ""},
+  "bot_name": "research-dryrun",
+  "initial_state": "running",
+  "internals": {"process_throttle_secs": 5}
+}

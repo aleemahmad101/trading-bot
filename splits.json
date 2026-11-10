@@ -1,0 +1,8 @@
+{
+  "_comment": "Date splits by calendar date over the common data range 2021-11-10 -> 2026-11-09 (UTC). Freqtrade timerange end is exclusive. Mirrored in vault: References/Data Splits.md",
+  "data_start": "2021-11-10",
+  "data_end": "2026-11-09",
+  "train":      {"start": "2021-11-10", "end": "2024-11-10", "timerange": "20211110-20241110"},
+  "validation": {"start": "2024-11-10", "end": "2025-11-10", "timerange": "20241110-20251110"},
+  "test":       {"start": "2025-11-10", "end": "2026-11-09", "timerange": "20251110-20261109", "locked": true}
+}

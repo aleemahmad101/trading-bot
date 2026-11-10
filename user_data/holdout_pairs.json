@@ -1,0 +1,5 @@
+{
+  "_comment": "Phase 5 out-of-universe pairs. Next 10 by Oct-Nov 2021 OKX quote volume (after the 18 dev pairs; OKB and LRC/SLP skipped). Do NOT use before Phase 5.",
+  "pairs": ["XLM/USDT", "ETC/USDT", "ALGO/USDT", "UNI/USDT", "CRV/USDT",
+            "GRT/USDT", "XTZ/USDT", "AAVE/USDT", "MANA/USDT", "EGLD/USDT"]
+}
