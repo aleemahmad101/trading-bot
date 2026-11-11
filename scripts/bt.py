@@ -15,6 +15,9 @@ Example:
 import argparse, csv, datetime as dt, io, json, subprocess, sys, zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from exposure import exposure_metrics, illiquid_flag  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 VAULT = Path.home() / "Documents" / "Trading Research"
 FT = ROOT / ".venv" / "Scripts" / "freqtrade.exe"
@@ -24,7 +27,9 @@ RESULTS = ROOT / "user_data" / "backtest_results"
 SPLITS = json.loads((ROOT / "splits.json").read_text())
 LEDGER_COLS = ["run_at", "id", "kind", "hypothesis", "variation", "strategy", "split", "timerange",
                "fee", "pairs", "timeframe_detail", "status", "total_trades", "profit_total_pct",
-               "profit_factor", "wallet_max_dd_pct", "wallet_sharpe", "result_file", "reason"]
+               "profit_factor", "wallet_max_dd_pct", "wallet_sharpe", "result_file", "reason",
+               "time_in_market_pct", "avg_exposure_pct", "btc_matched_return_pct", "btc_matched_max_dd_pct",
+               "illiquid_profit_share_pct"]
 
 
 def git_commit():
@@ -67,7 +72,7 @@ def parse_result(zip_path, strategy):
     name = [n for n in z.namelist() if n.endswith(".json") and not n.endswith("_config.json")][0]
     s = json.loads(z.read(name))["strategy"][strategy]
     w = s.get("wallet_stats", {}) or {}
-    return {
+    out = {
         "total_trades": s["total_trades"],
         "win_rate": pct(s.get("winrate")),
         "profit_total_pct": pct(s.get("profit_total")),
@@ -84,7 +89,13 @@ def parse_result(zip_path, strategy):
         "market_change_pct": pct(s.get("market_change")),
         "backtest_start": s.get("backtest_start"), "backtest_end": s.get("backtest_end"),
         "timeframe": s.get("timeframe"),
+        "avg_profit_per_trade_pct": round(100 * (s.get("profit_mean") or 0), 3),
     }
+    out.update(exposure_metrics(zip_path, strategy, s["backtest_start"], s["backtest_end"]))
+    flag = illiquid_flag(s.get("results_per_pair", []), s.get("timeframe"), s.get("profit_total_abs") or 0,
+                         s.get("starting_balance") or 10000)
+    out["illiquid"] = flag
+    return out
 
 
 def yaml_val(v):
@@ -119,6 +130,11 @@ def write_note(a, meta, res, status, err_tail):
                                        "wallet_sortino", "wallet_calmar", "avg_duration", "market_change_pct"]})
         fm["max_drawdown_pct"] = res["wallet_max_dd_pct"]   # dashboard column = wallet (mark-to-market) DD
         fm["sharpe"] = res["wallet_sharpe"]
+        fm.update({k: res.get(k) for k in ["avg_profit_per_trade_pct", "time_in_market_pct", "avg_exposure_pct",
+                                           "btc_matched_return_pct", "btc_matched_max_dd_pct", "btc_matched_sharpe"]})
+        if res.get("illiquid"):
+            fm["illiquid_5m_flag"] = True
+            fm["illiquid_profit_share_pct"] = res["illiquid"]["illiquid_profit_share_pct"]
     fm["tags"] = [a.kind]
     lines = ["---"] + [f"{k}: {yaml_val(v)}" for k, v in fm.items()] + ["---", ""]
     lines += [f"# {a.id}: {a.strategy} on {a.split}", ""]
@@ -135,7 +151,27 @@ def write_note(a, meta, res, status, err_tail):
                   f"| Sharpe / Sortino / Calmar (daily wallet) | {res['wallet_sharpe']} / {res['wallet_sortino']} / {res['wallet_calmar']} |",
                   f"| Avg trade duration | {res['avg_duration']} |", f"| Trades per day | {res['trades_per_day']} |",
                   f"| Market change over period (avg of pairs) | {res['market_change_pct']}% |",
+                  f"| Avg profit per trade (after costs) | {res['avg_profit_per_trade_pct']}% |",
                   f"| Backtested | {res['backtest_start']} → {res['backtest_end']} |", ""]
+        if "avg_exposure_pct" in res:
+            beat_ret = res["profit_total_pct"] > res["btc_matched_return_pct"]
+            lines += ["## Exposure vs BTC hold at the same exposure",
+                      "BTC benchmark = constant fraction of wallet in BTC equal to this run's average exposure, "
+                      "rebalanced daily, no fees. Same average risk budget, no timing.", "",
+                      "| | This run | BTC hold, exposure-matched | BTC hold, 100% |", "|---|---|---|---|",
+                      f"| Time in market | {res['time_in_market_pct']}% | 100% | 100% |",
+                      f"| Avg capital exposure | {res['avg_exposure_pct']}% | {res['avg_exposure_pct']}% | 100% |",
+                      f"| Total return | {res['profit_total_pct']}% | {res['btc_matched_return_pct']}% | {res['btc_hold_return_pct']}% |",
+                      f"| Max drawdown | {res['wallet_max_dd_pct']}% | {res['btc_matched_max_dd_pct']}% | {res['btc_hold_max_dd_pct']}% |",
+                      f"| Sharpe (daily) | {res['wallet_sharpe']} | {res['btc_matched_sharpe']} | {res['btc_matched_sharpe']} |",
+                      "", f"**Beats exposure-matched BTC on return:** {'yes' if beat_ret else 'no'}", ""]
+        il = res.get("illiquid")
+        if il:
+            lines += ["> [!warning] Illiquid 5m pairs included (THETA/AXS/CHZ)",
+                      f"> {il['illiquid_trades']} trades on {', '.join(il['illiquid_pairs_included'])}, "
+                      f"contributing {il['illiquid_profit_abs']} USDT ({il['illiquid_profit_share_pct']}% of total profit).",
+                      f"> Approx. total profit **without** them: {il['profit_total_pct_ex_illiquid']}% "
+                      "(simple subtraction; ignores compounding and freed-up slots). Prefer re-running without these pairs.", ""]
     else:
         lines += ["## Run failed", "```", err_tail, "```", ""]
     lines += ["## Observations", a.notes or "", "", "## Raw output", f"`{meta.get('result_file')}`", ""]
@@ -170,6 +206,8 @@ def main():
             sys.exit(f"REFUSED: {a.strategy} has already had its one run on the test split.")
     if a.fee < 0.0015:
         sys.exit("REFUSED: fee below project minimum 0.0015/side (fee+slippage).")
+    if "timeframe" in json.loads(CONFIG.read_text()):
+        sys.exit("REFUSED: config.json sets 'timeframe', which silently overrides every strategy's own timeframe.")
     if git_dirty() and not a.allow_dirty:
         sys.exit("REFUSED: commit strategy/script changes first so the run is reproducible (or --allow-dirty).")
 
@@ -210,8 +248,13 @@ def main():
                    "profit_factor": (res or {}).get("profit_factor", ""),
                    "wallet_max_dd_pct": (res or {}).get("wallet_max_dd_pct", ""),
                    "wallet_sharpe": (res or {}).get("wallet_sharpe", ""),
-                   "result_file": meta.get("result_file", ""), "reason": a.reason})
-    print(json.dumps({"status": status, "note": str(note), **(res or {"error": err_tail[-800:]})}, indent=1))
+                   "result_file": meta.get("result_file", ""), "reason": a.reason,
+                   "time_in_market_pct": (res or {}).get("time_in_market_pct", ""),
+                   "avg_exposure_pct": (res or {}).get("avg_exposure_pct", ""),
+                   "btc_matched_return_pct": (res or {}).get("btc_matched_return_pct", ""),
+                   "btc_matched_max_dd_pct": (res or {}).get("btc_matched_max_dd_pct", ""),
+                   "illiquid_profit_share_pct": ((res or {}).get("illiquid") or {}).get("illiquid_profit_share_pct", "")})
+    print(json.dumps({"status": status, "note": str(note), **(res or {"error": err_tail[-800:]})}, indent=1, default=str))
 
 
 if __name__ == "__main__":

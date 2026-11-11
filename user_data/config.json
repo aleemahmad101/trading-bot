@@ -10,7 +10,6 @@
   "tradable_balance_ratio": 0.99,
   "max_open_trades": 5,
   "fee": 0.0015,
-  "timeframe": "1h",
   "dataformat_ohlcv": "feather",
   "recursive_strategy_search": true,
   "unfilledtimeout": {"entry": 10, "exit": 10, "unit": "minutes"},
