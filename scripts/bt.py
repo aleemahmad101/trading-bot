@@ -169,7 +169,7 @@ def write_note(a, meta, res, status, err_tail):
         if il:
             lines += ["> [!warning] Illiquid 5m pairs included (THETA/AXS/CHZ)",
                       f"> {il['illiquid_trades']} trades on {', '.join(il['illiquid_pairs_included'])}, "
-                      f"contributing {il['illiquid_profit_abs']} USDT ({il['illiquid_profit_share_pct']}% of total profit).",
+                      f"contributing {il['illiquid_profit_abs']} USDT ({il['illiquid_profit_share_pct']}% of total P&L; same sign as total = same direction).",
                       f"> Approx. total profit **without** them: {il['profit_total_pct_ex_illiquid']}% "
                       "(simple subtraction; ignores compounding and freed-up slots). Prefer re-running without these pairs.", ""]
     else:
