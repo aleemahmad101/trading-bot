@@ -12,11 +12,19 @@ Rules, implemented exactly:
     fires, i.e. exactly 24h), or stoploss -10% (with 5m timeframe-detail at run time).
   * Sizing (run-time): max_open_trades = 5, stake_amount = "unlimited".
 
-Implementation note: startup_candle_count = 4800 (BTC 200-day SMA needs 4800 rows; the 721-row
-sigma window is covered by it).
+Implementation notes:
+  * Freqtrade refuses a startup_candle_count above 5x the exchange's per-call candle limit
+    (OKX 1h: 1499). The BTC 200-day SMA (4800 1h candles) is therefore computed from the
+    downloaded BTC/USDT 1h data file itself (rolling mean of PAST closes only, merged on date),
+    so the rule is unchanged. startup_candle_count = 721 covers the sigma window.
+  * Until 4800 BTC candles exist (data starts 2021-11-10), btc_sma is NaN, so there are no
+    entries before ~2022-05-29 - same effective start as stated in the note.
+  * Phase 6 (dry-run) would need this file kept up to date; noted for later.
 """
 from datetime import timedelta
+from pathlib import Path
 import numpy as np
+import pandas as pd
 from pandas import DataFrame
 from freqtrade.strategy import IStrategy
 
@@ -30,7 +38,8 @@ class H004_ShockRebound(IStrategy):
     INTERFACE_VERSION = 3
     timeframe = "1h"
     can_short = False
-    startup_candle_count = SMA_WINDOW
+    startup_candle_count = SIGMA_WINDOW + 1
+    _btc_cache = None
 
     minimal_roi = {"0": 100.0}
     stoploss = -0.10
@@ -40,16 +49,19 @@ class H004_ShockRebound(IStrategy):
     ignore_roi_if_entry_signal = False
     process_only_new_candles = True
 
-    def informative_pairs(self):
-        return [("BTC/USDT", self.timeframe)]
+    def _btc_regime(self) -> DataFrame:
+        if H004_ShockRebound._btc_cache is None:
+            f = Path(self.config["datadir"]) / "BTC_USDT-1h.feather"
+            btc = pd.read_feather(f)[["date", "close"]].sort_values("date")
+            btc["date"] = pd.to_datetime(btc["date"], utc=True)
+            btc["btc_sma"] = btc["close"].rolling(SMA_WINDOW).mean()   # past closes only
+            H004_ShockRebound._btc_cache = btc.rename(columns={"close": "btc_close"})
+        return H004_ShockRebound._btc_cache
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe["r"] = np.log(dataframe["close"] / dataframe["close"].shift(1))
         dataframe["sigma"] = dataframe["r"].rolling(SIGMA_WINDOW).std().shift(1)
-        btc = self.dp.get_pair_dataframe(pair="BTC/USDT", timeframe=self.timeframe)[["date", "close"]].copy()
-        btc["btc_sma"] = btc["close"].rolling(SMA_WINDOW).mean()
-        btc = btc.rename(columns={"close": "btc_close"})
-        dataframe = dataframe.merge(btc[["date", "btc_close", "btc_sma"]], on="date", how="left")
+        dataframe = dataframe.merge(self._btc_regime()[["date", "btc_close", "btc_sma"]], on="date", how="left")
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
